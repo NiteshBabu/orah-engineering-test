@@ -1,17 +1,37 @@
 import { NextFunction, Request, Response } from "express"
+import { getRepository } from "typeorm"
+import { Group } from "../entity/group.entity"
+import { CreateGroupInput } from "../interface/group.interface"
 
 export class GroupController {
 
+  private groupRepository = getRepository(Group)
+
   async allGroups(request: Request, response: Response, next: NextFunction) {
-    // Task 1: 
-    
+    // Task 1:
     // Return the list of all groups
+    return this.groupRepository.find()
+
   }
 
   async createGroup(request: Request, response: Response, next: NextFunction) {
     // Task 1: 
-    
+    const { body: params } = request
+
+    const createGroupInput: CreateGroupInput = {
+      name: params.name,
+      number_of_weeks: params.number_of_weeks,
+      roll_states: params.roll_states,
+      incidents: params.incidents,
+      ltmt: params.ltmt,
+      run_at: params.run_at,
+      student_count: params.student_count,
+    }
+
     // Add a Group
+    const group = new Group()
+    group.prepareToCreate(createGroupInput)
+    return this.groupRepository.save(group)
   }
 
   async updateGroup(request: Request, response: Response, next: NextFunction) {
