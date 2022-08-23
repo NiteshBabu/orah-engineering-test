@@ -80,6 +80,9 @@ export class GroupController {
     // Task 1:
     const { body: params } = request
     const groupStudents = await this.groupStudentRepository.find({ group_id: params.group_id })
+
+    if (!groupStudents) return {body : "Not Found"}
+
     let promises = groupStudents.map((s) =>
       this.studentRepository.findOne({ id: s.student_id }).then((student) => {
         return {
@@ -102,50 +105,66 @@ export class GroupController {
 
     // 2. For each group, query the student rolls to see which students match the filter for the group
     const group = await this.groupRepository.findOne({ id: request.query.id })
-    group.run_at = new Date()
+    if (!group) return { body: "Not Found" }
+
+    let date = new Date()
+    group.run_at = date
+
+    date.setDate(date.getDate() - group.number_of_weeks * 7)
 
     // fetch roll state, matching group's roll_states
-    const rollState = await this.rollRepository.findOne({ name: group.roll_states })
-    
-    // fetch students present with same roll state
-    const studentsInRollState = await this.studetnRollRepository.find({ roll_id: rollState.id })
-    
-    // No. of students matching filter
-    group.student_count = studentsInRollState.length
+    const rollStatesName = group.roll_states.split(",").map((s) => s.trim())
 
-    // // 3. Add the list of students that match the filter to the group
-    let seen = null
+    const rollStates = await this.rollRepository
+      .createQueryBuilder("roll")
+      .where("roll.name IN (:...names)", { names: rollStatesName })
+      .andWhere("roll.completed_at > :date", { date: date })
+      .getMany()
+
+    // fetch students present with same roll state
+    const studentsInRollState = await this.studetnRollRepository
+      .createQueryBuilder("student")
+      .where("student.roll_id IN (:...ids)", { ids: rollStates.map((s) => s.id) })
+      .getMany()
+
+    // No. of students matching filter
+
+    // 3. Add the list of students that match the filter to the group
+    let seen: number = null
+    const studentCount: number[] = []
     studentsInRollState.map(async (s) => {
       if (!seen) {
         seen = s.student_id
-        this.insertIntoGroupStudent(group, studentsInRollState, s)
+        this.insertIntoGroupStudent(group, studentsInRollState, s, studentCount)
       }
       if (seen != s.student_id) {
-        this.insertIntoGroupStudent(group, studentsInRollState, s)
         seen = s.student_id
+        this.insertIntoGroupStudent(group, studentsInRollState, s, studentCount)
       }
     })
 
-    // })
+    group.student_count = studentCount.length
     return this.groupRepository.save(group)
   }
 
-  public insertIntoGroupStudent(group, studentsInRollState ,s){
-    const count = studentsInRollState.filter((x) => s.student_id === x.student_id).length
-    console.log(count, group.incidents)
+  // helper function to insert into group-student
+  public insertIntoGroupStudent(group: Group, studentsInRollState: StudentRollState[], student: StudentRollState, studentCount: number[]) {
+    const count = studentsInRollState.filter((x) => student.student_id === x.student_id).length
     if (group.ltmt === "<" && count < group.incidents) {
+      studentCount.push(0)
       const groupStudent = new GroupStudent()
       groupStudent.prepareToCreate({
-        student_id: s.student_id,
+        student_id: student.student_id,
         group_id: group.id,
         incident_count: count,
       })
       this.groupStudentRepository.save(groupStudent)
     }
     if (group.ltmt === ">" && count > group.incidents) {
+      studentCount.push(0)
       const groupStudent = new GroupStudent()
       groupStudent.prepareToCreate({
-        student_id: s.student_id,
+        student_id: student.student_id,
         group_id: group.id,
         incident_count: count,
       })
